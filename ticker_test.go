@@ -12,12 +12,14 @@ import (
 
 func Test_TickSetURLSetHandlerGetRequestDefaultClient(t *testing.T) {
 	ts := createTestServer(func(resp http.ResponseWriter, req *http.Request) {})
+	defer ts.Close()
 
 	err := make(chan bool)
 	boom := New().SetUrl(ts.URL)
 	boom.SetHandleFunc(func(resp *http.Response) {
 		err <- false
 	})
+	defer boom.Stop()
 	go boom.Tick()
 
 	if <-err {
@@ -57,11 +59,47 @@ func Test_SetInterval(t *testing.T) {
 		}
 		timer.Reset(100 * time.Millisecond)
 	})
+	defer ts.Close()
 
 	boom := New().SetUrl(ts.URL).SetHandleFunc(func(*http.Response) {})
 	boom.SetInterval(90 * time.Millisecond)
+	defer boom.Stop()
 	go boom.Tick()
 
+	<-done
+}
+
+func Test_OnErrorRequest(t *testing.T) {
+	done := make(chan bool)
+	boom := New().SetUrl("http://0.0.0.0:0").SetInterval(50 * time.Millisecond)
+	boom.SetHandleFunc(func(*http.Response) {})
+	boom.OnErrorRequest(func(t *Ticker, r *http.Response, err error) {
+		done <- true
+	}).OnErrorRequest(func(t *Ticker, r *http.Response, err error) {
+		done <- true
+	})
+	defer boom.Stop()
+	go boom.Tick()
+
+	<-done
+	<-done
+}
+
+func Test_OnAfterResponse(t *testing.T) {
+	done := make(chan bool)
+	ts := createTestServer(func(resp http.ResponseWriter, req *http.Request) {})
+	defer ts.Close()
+	boom := New().SetUrl(ts.URL).SetInterval(50 * time.Millisecond)
+	boom.SetHandleFunc(func(*http.Response) {})
+	boom.OnAfterResponse(func(t *Ticker, r *http.Response) {
+		done <- true
+	}).OnAfterResponse(func(t *Ticker, r *http.Response) {
+		done <- true
+	})
+	defer boom.Stop()
+	go boom.Tick()
+
+	<-done
 	<-done
 }
 
@@ -84,6 +122,7 @@ func Test_TickSetRequest(t *testing.T) {
 
 		done <- nil
 	})
+	defer ts.Close()
 
 	expectReq, err := http.NewRequest("POST", ts.URL, bytes.NewBuffer([]byte{}))
 	if err != nil {
@@ -93,6 +132,7 @@ func Test_TickSetRequest(t *testing.T) {
 
 	boom := New().SetHTTPRequest(expectReq)
 	boom.SetHandleFunc(func(resp *http.Response) {})
+	defer boom.Stop()
 	go boom.Tick()
 
 	if err := <-done; err != nil {
